@@ -1,0 +1,136 @@
+---
+- name: Deploy and configure servers
+  hosts: all
+  remote_user: ubuntu
+  vars:
+    keyfile: "/Users/charithabandi/Desktop/kwil/dev/dev/kwil-login.pem"
+    timeout_propose: "30"
+    timeout_prevote: "6"
+    timeout_precommit: "6"
+    timeout_commit: "6"
+    remote_home: "/data"
+    peers: "d46ead2111fc4886d4593a78e998e0a2661deeba@54.227.178.189:26656,bd7df4765faa4716d102037eb279e1cf2d580910@54.234.48.149:26656,4acd444060ae59616dfaeb89d8cdf1564f9fc7b3@52.23.185.225:26656,8198edeefc0a10f376afa64641ab25e498fcb4a1@54.159.57.253:26656,0a5fe0161ae0d43847da112ac755ac63fab3988a@54.89.167.187:26656,4932d2809c25f71ea84ae7a4d6f462717ed0321a@34.229.194.35:26656,d0bf4bf5ea05653e829fb7a1d5f6e7043112343c@54.163.23.128:26656,03633167fa15a26351a35b243b370f71003fbefb@54.146.195.66:26656,ccf30cc442a937f9a63f5917e147601b1f3e9070@3.80.122.85:26656,4becec6a633d343c38daeb73a11963d53661b344@3.94.119.182:26656,851a7898934390269feefefa92d23578eece6419@3.91.202.166:26656,d47d0179969b398523d530103c4457b23d3ddd90@34.224.102.188:26656"
+  tasks:
+    - name: Create necessary directories
+      ansible.builtin.file:
+        path: "{{ remote_home }}/{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - node
+        # - docker
+        # - pgdb
+        # - node/abci
+        # - node/abci/data
+      tags: init
+
+    - name: Create docker daemon json file
+      ansible.builtin.copy:
+        src: "/Users/charithabandi/Desktop/kwil/dev/dev/daemon.json"
+        dest: "/etc/docker/daemon.json"
+        mode: '0755'
+        owner: root
+        group: root
+      become: true
+      become_method: sudo
+      become_user: root
+      tags: init
+
+    - name: Copy config.toml file
+      ansible.builtin.copy:
+        src: "/Users/charithabandi/Desktop/kwil/dev/dev/.testnet/node{{ansible_play_batch.index(inventory_hostname)}}/config.toml"
+        dest: "{{ remote_home }}/node/config.toml"
+        mode: '0755'
+        owner: ubuntu
+        group: ubuntu
+      tags: cfg, init
+    
+    - name: Copy genesis file
+      ansible.builtin.copy:
+        src: "/Users/charithabandi/Desktop/kwil/dev/dev/.testnet/node{{ ansible_play_batch.index(inventory_hostname)}}/genesis.json"
+        # src: genesis.json
+        dest: "{{ remote_home }}/node/genesis.json"
+        mode: '0755'
+        owner: ubuntu
+        group: ubuntu
+      tags: genesis, init
+
+    - name: Copy private key file
+      ansible.builtin.copy:
+        src: "/Users/charithabandi/Desktop/kwil/dev/dev/.testnet/node{{ ansible_play_batch.index(inventory_hostname)}}/private_key"
+        dest: "{{ remote_home }}/node/private_key"
+        mode: '0755'
+        owner: ubuntu
+        group: ubuntu
+      tags: pkey, init
+
+    - name: Copy binaries
+      ansible.builtin.copy:
+        src: "/Users/charithabandi/Desktop/kwil/dev/dev/bin/{{ item }}"
+        dest: "{{ remote_home }}/bin/{{ item }}"
+        mode: '0755'
+        owner: ubuntu
+        group: ubuntu
+      loop:
+        - kwild
+        # - kwil-cli
+        # - kwil-admin
+        - stress
+        # - stats
+      tags: bins, init
+
+    # - name: Copy new stress tool
+    #   ansible.builtin.copy:
+    #     src: "/Users/charithabandi/Desktop/kwil/dev/dev/stress"
+    #     dest: "{{ remote_home }}/stress"
+    #     mode: '0755'
+    #     owner: ubuntu
+    #     group: ubuntu
+    #   tags: stress, init
+
+    - name: restart docker
+      ansible.builtin.shell: |
+        sudo systemctl restart docker
+      tags: docker, init
+
+    - name: stop kwild process
+      ansible.builtin.shell: |
+        ps aux | grep '{{ remote_home }}/bin/kwild -r' | grep -v grep | awk '{print $2}' | xargs kill -9
+        rm -rf {{ remote_home }}/node/abci/
+        rm -rf {{ remote_home }}/node/signing
+        rm {{ remote_home }}/node/kwild.log
+      ignore_errors: yes
+      tags: stopkwild, stop
+    
+    - name: stop pg
+      ansible.builtin.shell: |
+        cd {{ remote_home }}/pg
+        sudo {{ docker_command }} down
+        sudo docker volume rm pg_kwildb
+      register: docker_down_result
+      # failed_when: "'failed' in docker_down_result.stderr"
+      tags: cleanup, stop
+    
+
+    - name: start pg
+      ansible.builtin.shell: |
+        cd {{ remote_home }}/pg
+        sudo usermod -a -G docker ubuntu
+        sudo {{ docker_command }} up -d
+      register: docker_up_result
+      ignore_errors: yes
+      tags: startpg, start
+
+    - name: Start kwild process
+      ansible.builtin.shell: "nohup {{ remote_home }}/bin/kwild -r {{ remote_home }}/node --chain.consensus.timeout-commit 6s  --chain.consensus.timeout-propose 30s --chain.consensus.timeout-prevote 6s --chain.consensus.timeout-precommit 6s --chain.mempool.size 50000  --app.jsonrpc-listen-addr '0.0.0.0:8484'  --chain.rpc.listen-addr '0.0.0.0:26657' --log.rpc_level warn --chain.p2p.persistent-peers {{ peers }}  --chain.p2p.listen-addr tcp://0.0.0.0:26656 --chain.p2p.external-address {{ ansible_host }}:26656 > {{ remote_home }}/kwild.log 2>&1 &"
+      async: 1
+      poll: 0
+      tags: kwild, start
+  
+    - name: Verify kwild process is running
+      ansible.builtin.shell: "ps aux | grep '{{ remote_home }}/bin/kwild -r {{ remote_home }}/node' | grep -v grep"
+      register: kwild_process
+      failed_when: kwild_process.stdout == ""
+      tags: verify, start
+
+   
