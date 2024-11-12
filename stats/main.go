@@ -4,22 +4,21 @@ import (
 	"flag"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 
 	"github.com/kwilteam/kwil-db/core/log"
 )
 
 var (
-	statsFile string
+	statsDir string
 
-	rpcServers string
+	rpcServer string
 )
 
 func main() {
 	// Flag support for stats file name, rpc servers to query.
-	flag.StringVar(&statsFile, "output", "stats.json", "stats file name")
-	flag.StringVar(&rpcServers, "rpcservers", "http://localhost:26657", "comma separated list of rpc servers to query stats from")
+	flag.StringVar(&statsDir, "output", ".stats", "stats directory to write stats.json and analysis.json files")
+	flag.StringVar(&rpcServer, "rpcserver", "http://localhost:26657", "rpc server address to query stats from")
 
 	flag.Parse()
 
@@ -33,8 +32,7 @@ func main() {
 		EncodeTime:  log.TimeEncodingEpochMilli, // for readability, log.TimeEncodingRFC3339Milli
 	})
 
-	addresses := strings.Split(rpcServers, ",")
-	statsMonitor, err := newStatsMonitor(addresses, statsFile, logger)
+	statsMonitor, err := newStatsMonitor(rpcServer, statsDir, logger)
 	if err != nil {
 		logger.Error("failed to create stats monitor", log.Error(err))
 		os.Exit(1)
