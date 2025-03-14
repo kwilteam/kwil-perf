@@ -1,0 +1,74 @@
+---
+- name: Setup the environment for the test run
+  hosts: leader
+  become: yes  # Enable sudo if required
+  vars:
+    ec: 2
+    el: 1000000
+    pollint: "400ms"
+    host: "http://127.0.0.1:8484"
+    key: "f1aa5a7966c3863ccde3047f6a1e266cdc0c76b399e256b8fede92b1c69e4f4e"
+    ns: "perftests"
+    blockTime: "1s"
+    blockTimeNs: 100000000
+    block_sz_bytes: 6291456
+    block_size: 6
+    duration: 15s  # 30 minutes (1800 seconds)
+    nStress: 2
+    results_dir: "/data/results/perf-test-ec-{{ ec }}-ns-{{ nStress }}-el-{{ el }}-bt-{{ blockTime }}-bs-{{ block_size }}"
+
+  tasks:
+    - name: Create results directory for this test based on the var names
+      file: 
+        path: "{{ results_dir }}"
+        state: directory
+        mode: '0755'
+        owner: ubuntu
+        group: ubuntu
+      tags: mkdir
+
+
+    - name: cleanup logs folder and create results folder
+      shell: |
+        rm -rf /data/log
+        mkdir -p /data/log
+        touch /data/node/kwild.log
+      args:
+        executable: /bin/bash
+    
+    - name: Create test params json file
+      copy:
+        content: |
+          {
+            "propose_timeout": {{ blockTimeNs }},
+            "max_block_size": {{ block_sz_bytes }},
+            "concurrency": {{ ec }},
+            "payload_size": {{ el }},
+          }
+        dest: "/data/log/test_params.json"
+        owner: ubuntu
+        group: ubuntu
+        mode: '0644'
+      tags: params
+
+    - name: deploy namespace
+      command: >
+          nohup ./stress 
+          -ec {{ ec }} 
+          -el {{ el }} 
+          -pollint {{ pollint }} 
+          -host {{ host }} 
+          -key {{ key }} 
+          -run {{ duration }}
+          -ns {{ ns }} > stress_test.log 2>&1 &
+      args:
+        chdir: /data/bin/
+      async: "{{ 15 }}"
+      poll: 1  # Run the task asynchronously
+
+    - name: store start block height
+      shell: |
+        /data/bin/kwild admin status -s localhost:8584 | jq -r '.sync.best_block_height' | tr -d '\n'  > /data/log/start_block.txt
+      args:
+        executable: /bin/bash
+      tags: start

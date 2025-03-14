@@ -1,0 +1,25 @@
+---
+- name: Install Kwil and Dependencies
+  hosts: all
+  become: yes
+  tasks:
+    - name: copy pg init and reset scripts
+      tags: cfg
+      synchronize:
+        src: "../pg"
+        dest: "/data"
+        archive: yes
+        delete: no
+
+    - name: stop pg
+      ansible.builtin.shell: |
+        systemctl stop postgresql
+      tags: stop
+
+    - name: update genesis file
+      synchronize:
+        src: "../kwil/genesis.json"
+        dest: "/data/node"
+        archive: yes
+        delete: no
+      tags: gen

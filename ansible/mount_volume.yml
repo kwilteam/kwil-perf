@@ -1,0 +1,111 @@
+---
+- name: Configure Filesystem and Mount Volume
+  hosts: all
+  become: yes
+  tasks:
+
+    - name: Check if /data is mounted
+      shell: mount | grep "/data"
+      register: data_mounted
+      ignore_errors: yes
+
+    - name: Unmount /data if it is mounted
+      command: umount /data
+      when: data_mounted.rc == 0
+
+    - name: force kill all processes using /data
+      shell: |
+        sudo fuser -k /data
+      ignore_errors: yes
+
+    - name: Verify /data is unmounted
+      shell: mount | grep "/data"
+      register: verify_unmount
+      ignore_errors: yes
+    
+    - name: Remove /data if it exists
+      file:
+        path: /data
+        state: absent
+
+    - name: Create /data directory if it does not exist
+      file:
+        path: /data
+        state: directory
+        mode: '0755'
+  
+    - name: Create subdata directory if it does not exist
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - /data/kwil
+        - /data/bin
+        - /data/results
+        - /data/log
+        - /data/node
+        - /data/postgresql
+    
+    - name: Change ownership of /data folders to ubuntu user
+      file:
+        path: "{{ item }}"
+        owner: ubuntu
+        group: ubuntu
+        recurse: yes
+      loop:
+        - /data
+        - /data/kwil
+        - /data/bin
+        - /data/results
+        - /data/log
+        - /data/node
+  
+    - name: Find the volume to mount
+      shell: |
+        lsblk -b | awk '$4 == "68719476736" {print $1}'
+      register: disk_device
+      changed_when: false
+
+    - name: Check if disk is already formatted
+      shell: "lsblk -no FSTYPE /dev/{{ disk_device.stdout }}"
+      register: fs_type
+      changed_when: false
+
+    - name: Format the volume if not already formatted
+      command: mkfs -t ext4 /dev/{{ disk_device.stdout }}
+      when: fs_type.stdout == ""
+
+    - name: Mount the volume to /data
+      mount:
+        path: /data
+        src: /dev/{{ disk_device.stdout }}
+        fstype: ext4
+        opts: defaults,nofail
+        state: mounted
+
+    - name: Get UUID of the mounted volume
+      command: blkid -s UUID -o value /dev/{{ disk_device.stdout }}
+      register: volume_uuid
+
+    - name: Ensure volume is mounted at boot by updating /etc/fstab
+      lineinfile:
+        path: /etc/fstab
+        line: "UUID={{ volume_uuid.stdout }} /data ext4 defaults,nofail 0 2"
+        state: present
+
+    - name: Remount all file systems
+      command: mount -a
+
+    # - name: Reboot the server
+    #   reboot:
+    #     msg: "Rebooting after filesystem setup"
+    #     reboot_timeout: 300
+    #   when: fs_type.stdout == ""
+
+    - name: Verify that /data is mounted after reboot
+      command: df -h
+      register: mount_check
+
+    - debug:
+        msg: "Mount Check Output: {{ mount_check.stdout }}"

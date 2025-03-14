@@ -1,4 +1,3 @@
--- These commands are run with psql inside the container after postgres starts.
+-- Check if the user exists, then create it
 CREATE USER kwild WITH PASSWORD 'kwild' SUPERUSER REPLICATION;
 CREATE DATABASE kwild OWNER kwild;
-CREATE DATABASE postgres OWNER kwild;

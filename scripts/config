@@ -1,0 +1,45 @@
+Host kwil-tsn-sentry0
+    Hostname 50.16.81.129
+    User ubuntu
+    IdentityFile ~/.ssh/kwil-aws
+    Port 22
+
+Host kwil-tsn-staging0
+    Hostname 3.92.83.167
+    User ubuntu
+    IdentityFile ~/.ssh/kwil-aws
+
+Host staging
+    Hostname 23.20.126.14
+    User ubuntu
+    IdentityFile /Users/charithabandi/Desktop/kwil/dev/dev/kwil-login.pem
+
+Host leader
+    Hostname 18.212.178.149
+    User ubuntu
+    IdentityFile /Users/charithabandi/Desktop/kwil/dev/dev/kwil-login.pem
+
+Host sentry
+    Hostname 54.172.154.169
+    User ubuntu
+    IdentityFile /Users/charithabandi/Desktop/kwil/dev/dev/kwil-login.pem
+
+Host val
+    Hostname 3.92.61.71
+    User ubuntu
+    IdentityFile /Users/charithabandi/Desktop/kwil/dev/dev/kwil-login.pem
+
+Host ercl
+    Hostname 3.83.164.86
+    User ubuntu
+    IdentityFile /Users/charithabandi/Desktop/kwil/dev/dev/kwil-login.pem
+
+Host ercv
+    Hostname 18.206.155.167
+    User ubuntu
+    IdentityFile /Users/charithabandi/Desktop/kwil/dev/dev/kwil-login.pem
+
+Host ercs
+    Hostname 54.161.50.211
+    User ubuntu
+    IdentityFile /Users/charithabandi/Desktop/kwil/dev/dev/kwil-login.pem

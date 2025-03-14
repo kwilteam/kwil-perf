@@ -1,0 +1,61 @@
+---
+- name: Generate test results
+  hosts: leader
+  become: yes  # Enable sudo if required
+  vars:
+    ec: 2
+    el: 1000000
+    pollint: "300ms"
+    host: "http://127.0.0.1:8484"
+    key: "f1aa5a7966c3863ccde3047f6a1e266cdc0c76b399e256b8fede92b1c69e4f4e"
+    ns: "perftests"
+    blockTime: "500ms"
+    block_size: 6
+    nStress: 2
+    duration: 1800  # 30 minutes (1800 seconds)
+    results_dir: "/data/results/perf-test-ec-{{ ec }}-ns-{{ nStress }}-el-{{ el }}-bt-{{ blockTime }}-bs-{{ block_size }}"
+    localDir : "../results/perf-v10"
+
+  tasks:
+    - name: store end block height
+      shell: |
+        /data/bin/kwild admin status -s localhost:8584 | jq -r '.sync.best_block_height' | tr -d '\n'  > /data/log/end_block.txt
+      args:
+        executable: /bin/bash
+
+    - name: stop all the servers
+      shell: |
+        sudo killall kwild
+      args:
+        executable: /bin/bash
+      tags : stop
+      ignore_errors: yes
+
+    - name: Copy blockstore to results folder
+      shell: |
+        cp -r /data/node/blockstore /data/log
+      args:
+        executable: /bin/bash
+
+    - name: analyze logs
+      shell: |
+        /data/bin/metrics -logs /data/log -output {{ results_dir }}
+      args:
+        executable: /bin/bash
+      ignore_errors: yes
+
+    - name: Compress the logs folder for future use
+      shell: tar -cf - -C /data/log . | pigz -p 4 > {{ results_dir }}/logs.tar.gz
+      args:
+        executable: /bin/bash
+      register: compress_result
+      changed_when: compress_result.rc == 0
+      tags: final
+
+    - name: Copy results to the local machine
+      synchronize:
+        src: "{{ results_dir }}"
+        dest: "{{ localDir }}/"
+        mode: pull
+      tags: fetch,final
+      ignore_errors: yes

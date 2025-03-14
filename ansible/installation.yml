@@ -1,0 +1,140 @@
+---
+- name: Install Kwil and Dependencies
+  hosts: all
+  become: yes
+  tasks:
+
+    - name: Install required system packages
+      apt:
+        name:
+          - build-essential
+          - postgresql
+          - postgresql-contrib
+        state: present
+        update_cache: yes
+
+    - name: Install Snap packages
+      shell: |
+        snap install go --classic
+        snap install task --classic
+      args:
+        executable: /bin/bash
+
+    - name: Clone Kwil-DB repository
+      git:
+        repo: "https://github.com/kwilteam/kwil-db.git"
+        dest: "/data/kwil/kwil-db"
+        version: main
+
+    - name: Configure the Kwild root directory
+      tags: kcfg
+      synchronize:
+        src: "../kwil/node{{ ansible_play_hosts.index(inventory_hostname) }}/"
+        dest: "/data/node/"
+        archive: yes
+        delete: no
+
+    - name: Copy PG init and reset scripts
+      tags: cfg2
+      synchronize:
+        src: "../pg"
+        dest: "/data"
+        archive: yes
+        delete: no
+
+    - name: Build Kwil-DB
+      tags: kd
+      shell: |
+        mkdir -p /data/bin
+        cp /data/kwil/kwil-db/go.work.example /data/kwil/kwil-db/go.work
+        cd /data/kwil/kwil-db
+        git config --global --add safe.directory /data/kwil/kwil-db
+        git config pull.rebase true
+        go work use
+        task tidy
+        task build
+        cp /data/kwil/kwil-db/.build/* /data/bin
+      args:
+        chdir: /data/kwil/kwil-db
+
+    # - name: rebuild kwild
+    #   tags: kd
+    #   shell: |
+    #     cd /data/kwil/kwil-db
+    #     git config --global --add safe.directory /data/kwil/kwil-db
+    #     git remote add charithabandi https://github.com/charithabandi/kwil-db
+    #     git config pull.rebase true
+    #     git fetch --all
+    #     git fetch charithabandi
+    #     git checkout bcast
+    #     git pull
+    #     task build
+    #     cp /data/kwil/kwil-db/.build/* /data/bin
+    #   args:
+    #     chdir: /data/kwil/kwil-db
+
+    - name: Build the stress tool and metrics tool
+      shell: |
+        cd /data/kwil/kwil-db/test/stress
+        go build
+        cp stress /data/bin
+        cd /data/kwil/kwil-db/test/metrics
+        go build
+        cp metrics /data/bin
+      args:
+        executable: /bin/bash
+      tags: kd
+      
+    - name: remove pg password authentication
+      tags : cfg
+      shell: |
+        cp /data/pg/pg_hba.conf /etc/postgresql/16/main/pg_hba.conf
+        cp /data/pg/postgresql.conf /etc/postgresql/16/main/postgresql.conf
+        mv /var/lib/postgresql/16/main/ /data/postgresql
+        chown -R postgres:postgres /data/postgresql
+        systemctl enable postgresql
+        systemctl start postgresql
+
+    - name: start pg
+      ansible.builtin.shell: |
+        systemctl enable postgresql
+        systemctl restart postgresql
+        sudo -u postgres psql -h localhost -p 5432 -U postgres -d postgres -w -f /data/pg/init.sql
+        systemctl restart postgresql
+      tags: pgcfg,pg
+
+    - name: Verify PostgreSQL is Active
+      command: systemctl is-active postgresql
+      register: postgres_status
+      changed_when: false
+      failed_when: postgres_status.stdout != "active"
+
+    - name: Wait for PostgreSQL to Start (Check 5 times with 5s delay)
+      wait_for:
+        port: 5432
+        timeout: 25
+      register: postgres_wait
+      retries: 5
+      delay: 5
+      until: postgres_wait is succeeded
+
+    - name: Verify PostgreSQL is Listening on Port 5432
+      shell: "ss -tlnp | grep :5432"
+      register: postgres_listen
+      changed_when: false
+      failed_when: postgres_listen.stdout == ""
+      tags: pg
+
+    - name: Ensure PostgreSQL Accepts Connections
+      shell: "sudo psql -U postgres -c 'SELECT 1;'"
+      register: postgres_connection
+      changed_when: false
+      failed_when: postgres_connection.rc != 0
+      tags: pg
+
+    - name: Ensure PostgreSQL Accepts Connections
+      shell: "sudo psql -U kwild -c 'SELECT 1;'"
+      register: postgres_connection
+      changed_when: false
+      failed_when: postgres_connection.rc != 0
+      tags: pg

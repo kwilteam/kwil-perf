@@ -1,0 +1,44 @@
+---
+- name: Initialize kwild and postgresql services required for the test
+  hosts: all
+  remote_user: ubuntu
+  become: yes
+  vars:
+    blockTime: "500s"
+
+  tasks:
+    - name: stop kwild services
+      shell: |
+        sudo killall kwild
+        rm -rf /data/node/kwild.log*
+      args:
+        executable: /bin/bash
+      tags : stopk
+      ignore_errors: yes
+
+    - name: stop any stress test if running
+      shell: |
+        sudo killall stress
+      args:
+        executable: /bin/bash
+      tags : stops
+      ignore_errors: yes
+
+    - name: reset state of kwild and postgres
+      shell: /data/bin/kwild setup reset -r /data/node/ --all
+      args:
+        executable: /bin/bash
+      ignore_errors: yes
+
+    - name: Start kwild
+      ansible.builtin.shell: "nohup sudo /data/bin/kwild start -r /data/node/ --consensus.propose-timeout {{ blockTime }} > /data/node/kwild.log 2>&1 &"
+      tags: start
+
+    - name: Verify kwild is running
+      ansible.builtin.shell: "ps aux | grep '/data/bin/kwild start' | grep -v grep"
+      register: kwild_process
+      failed_when: kwild_process.stdout == ""
+      tags: start
+
+
+      

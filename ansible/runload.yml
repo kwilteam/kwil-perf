@@ -1,0 +1,61 @@
+---
+- name: Run Stress Test on All Servers in Parallel
+  hosts: sentry
+  become: yes  # Enable sudo if required
+  vars:
+    ec: 250
+    el: 1000000
+    pollint: "400ms"
+    host: "http://127.0.0.1:8484"
+    key: "f1aa5a7966c3863ccde3047f6a1e266cdc0c76b399e256b8fede92b1c69e4f4e"
+    ns: "perftests"
+    blockTime: "1s"
+    blockTimeNs: 1000000000
+    block_size: 6
+    block_sz_bytes: 6291456
+    duration: "10m"  # 30 minutes (1800 seconds)
+    duration_sec: 600
+    stressID: 0
+    nStress: 2
+    results_dir: "/data/results/perf-test-ec-{{ ec }}-ns-{{ nStress }}-el-{{ el }}-bt-{{ blockTime }}-bs-{{ block_size }}"
+
+  tasks:
+    - name: Wait for all the sentry nodes to have caught up
+      shell: |
+        while true; do
+          sycing=$(/data/bin/kwild admin status -s localhost:8584 | jq -r '.sync.syncing')
+          if [ "$sycing" = "false" ]; then
+            break
+          fi
+          echo "Sentry node is still syncing. Waiting for it to finish..."
+          sleep 10
+        done
+      args:
+        executable: /bin/bash
+
+    # - name: Ensure log files exist
+    #   file:
+    #     path: "/data/node/stress_test_{{ stressID }}.log"
+    #     state: touch
+    #   loop: "{{ range(10) | list }}"
+
+    - name: Run Stress Test in Background
+      command: >
+        nohup ./stress 
+        -ec {{ ec }} 
+        -el {{ el }} 
+        -pollint {{ pollint }} 
+        -host {{ host }} 
+        -ne
+        -run 10m
+        -cl {{ nStress }}
+        -ns {{ ns }} > /data/node/stress_test_{{ stressID }}.log 2>&1 &
+      args:
+        chdir: /data/bin/
+      async: "{{ duration_sec }}"
+      poll: 1  # Run the task asynchronously
+
+    - name: Remove the stress test logs
+      shell: rm -rf /data/node/stress_test_{{ stressID }}.log
+      ignore_errors: yes
+
